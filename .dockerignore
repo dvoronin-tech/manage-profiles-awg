@@ -1,0 +1,6 @@
+**
+!Dockerfile.client
+!Dockerfile.server
+!client.py
+!server.py
+!profile_name.py

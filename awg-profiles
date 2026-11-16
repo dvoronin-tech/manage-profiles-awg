@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+absolute_path() {
+    directory=$(CDPATH='' cd -- "$(dirname "$1")" && pwd -P)
+    printf '%s/%s\n' "$directory" "$(basename "$1")"
+}
+
+known_hosts=${AWG_KNOWN_HOSTS:-"$HOME/.ssh/known_hosts"}
+if [ ! -r "$known_hosts" ]; then
+    printf '%s\n' 'SSH known_hosts is missing or unreadable. Verify and save the VPS host key first.' >&2
+    exit 1
+fi
+known_hosts=$(absolute_path "$known_hosts")
+client_image=${AWG_CLIENT_IMAGE:-awg-profile-client:local}
+set -- "$client_image" "$@"
+set -- -i "$@"
+if [ -t 0 ] && [ -t 1 ]; then
+    set -- -t "$@"
+fi
+
+if [ -n "${AWG_SSH_KEY:-}" ]; then
+    if [ ! -r "$AWG_SSH_KEY" ]; then
+        printf '%s\n' 'The SSH identity file is missing or unreadable.' >&2
+        exit 1
+    fi
+    identity=$(absolute_path "$AWG_SSH_KEY")
+    set -- --mount "type=bind,source=$identity,target=/ssh/identity,readonly" "$@"
+elif [ -n "${SSH_AUTH_SOCK:-}" ]; then
+    agent_socket=/run/host-services/ssh-auth.sock
+    set -- --env "SSH_AUTH_SOCK=$agent_socket" \
+        --mount "type=bind,source=$agent_socket,target=$agent_socket,readonly" "$@"
+fi
+
+output_directory=$(CDPATH='' cd -- "$(dirname "$0")" && pwd -P)
+exec docker run --rm \
+    --env "AWG_OUTPUT_DIRECTORY=$output_directory" \
+    --mount "type=bind,source=$output_directory,target=/profiles" \
+    --mount "type=bind,source=$known_hosts,target=/ssh/known_hosts,readonly" "$@"

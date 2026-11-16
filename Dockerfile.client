@@ -1,0 +1,7 @@
+FROM python:3.13-slim-bookworm
+
+RUN pip install --no-cache-dir paramiko==5.1.0
+
+WORKDIR /app
+COPY client.py profile_name.py .
+ENTRYPOINT ["python3", "/app/client.py"]
