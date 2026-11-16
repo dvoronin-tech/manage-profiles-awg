@@ -51,10 +51,10 @@ class ConfigSection:
         return self.fields.get(key.lower(), [""])[-1]
 
 
-def docker_command(*args, error, input_text=None, timeout=15):
+def run_command(*args, error, input_text=None, timeout=15):
     try:
         return subprocess.run(
-            ["docker", *args],
+            args,
             input=input_text.encode("utf-8") if input_text is not None else None,
             capture_output=True,
             check=True,
@@ -62,6 +62,10 @@ def docker_command(*args, error, input_text=None, timeout=15):
         ).stdout.decode("utf-8")
     except (OSError, UnicodeError, subprocess.SubprocessError):
         raise ServerError(error) from None
+
+
+def docker_command(*args, error, input_text=None, timeout=15):
+    return run_command("docker", *args, error=error, input_text=input_text, timeout=timeout)
 
 
 def docker_exec(*args, error, input_text=None, timeout=15):
@@ -377,8 +381,25 @@ def write_config(path, expected, config):
     expected_hash = hashlib.sha256(expected.encode("utf-8")).hexdigest()
     new_hash = hashlib.sha256(config.encode("utf-8")).hexdigest()
     error = "Could not write the persistent AmneziaWG configuration."
+    writable_path = os.environ.get("AWG_WRITABLE_CONFIG_PATH")
+    if writable_path:
+        try:
+            mounted_file = os.stat(writable_path)
+        except OSError:
+            raise ServerError("Could not open AWG_WRITABLE_CONFIG_PATH in the profile manager.") from None
+        identity = docker_exec(
+            "stat", "-Lc", "%d:%i", path,
+            error="Could not verify the AmneziaWG configuration mount.",
+        ).strip()
+        if identity != f"{mounted_file.st_dev}:{mounted_file.st_ino}":
+            raise ServerError("AWG_WRITABLE_CONFIG_PATH must mount the same file used by AmneziaWG.")
+    else:
+        docker_exec(
+            "test", "-w", path,
+            error="The AmneziaWG configuration is read-only. Mount the same host file into the manager with write access and set AWG_WRITABLE_CONFIG_PATH.",
+        )
     # The final write must keep the existing inode for single-file bind mounts.
-    result = docker_mutation(
+    command = (
         "sh", "-c",
         """
         umask 077
@@ -404,8 +425,15 @@ def write_config(path, expected, config):
             printf 'backup %s/previous\\n' "$work"
         fi
         """,
-        "sh", path, expected_hash, new_hash, input_text=config, error=error,
+        "sh", writable_path or path, expected_hash, new_hash,
     )
+    if writable_path:
+        try:
+            result = run_command(*command, error=error, input_text=config, timeout=None).strip()
+        except ServerError:
+            raise MutationUncertain(error) from None
+    else:
+        result = docker_mutation(*command, error=error, input_text=config)
     if result == "updated":
         return
     if result == "changed":
@@ -413,7 +441,8 @@ def write_config(path, expected, config):
     if result == "not-written":
         raise ServerError(error)
     if re.fullmatch(r"backup /tmp/awg-profile-manager\.[A-Za-z0-9]+/previous", result):
-        raise MutationUncertain(f"{error} A private copy of the previous configuration is in {result.split(' ', 1)[1]} inside the AmneziaWG container.")
+        container = "profile manager" if writable_path else "AmneziaWG"
+        raise MutationUncertain(f"{error} A private copy of the previous configuration is in {result.split(' ', 1)[1]} inside the {container} container.")
     raise MutationUncertain(error)
 
 

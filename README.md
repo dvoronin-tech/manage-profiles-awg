@@ -29,7 +29,7 @@ docker ps --format '{{.Names}}'
 
 ```sh
 AWG_CONTAINER=amnezia-awg2
-IMAGE=dvononintech/awg-profile-server:1.0.0
+IMAGE=dvononintech/awg-profile-server:1.0.1
 docker pull "$IMAGE" &&
 docker run -d --restart unless-stopped --name awg-profile-manager \
   -e "AWG_CONTAINER=$AWG_CONTAINER" \
@@ -41,12 +41,27 @@ docker ps --filter name=awg-profile-manager
 
 Когда `awg-profile-manager` покажет статус `Up`, введи `exit`. Серверный контейнер продолжит работать на VPS.
 
-## 3. Скопируй репозиторий и скачай клиент на Mac
-
-Запусти Docker Desktop. Склонируй локальный репозиторий на Mac:
+Если VPN смонтировал `awg0.conf` только для чтения, посмотри путь к файлу на хосте и флаг записи:
 
 ```sh
-git clone /Users/Denis/Work/add-profile "$HOME/awg-profile-manager"
+docker inspect --format '{{range .Mounts}}{{println .Source .Destination .RW}}{{end}}' "$AWG_CONTAINER"
+```
+
+Если рядом с `awg0.conf` стоит `false`, добавь в команду запуска менеджера перед `"$IMAGE"` два параметра. В `source` подставь путь из первого столбца:
+
+```sh
+--mount type=bind,source=/ПУТЬ/К/awg0.conf,target=/awg0.conf \
+-e AWG_WRITABLE_CONFIG_PATH=/awg0.conf
+```
+
+Менеджер проверит, что это тот же файл, который использует VPN.
+
+## 3. Скопируй репозиторий и скачай клиент на Mac
+
+Запусти Docker Desktop. Склонируй репозиторий с GitHub на Mac:
+
+```sh
+git clone git@github.com:dvoronin-tech/manage-profiles-awg.git "$HOME/awg-profile-manager"
 cd "$HOME/awg-profile-manager"
 ```
 
