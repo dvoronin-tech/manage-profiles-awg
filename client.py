@@ -195,10 +195,10 @@ def connect(args):
 
 def request(ssh, payload):
     try:
-        _, stdout, _ = ssh.exec_command(REMOTE_COMMAND, timeout=60)
+        stdin, stdout, _ = ssh.exec_command(REMOTE_COMMAND, timeout=60)
         with stdout.channel as channel:
-            channel.sendall((json.dumps(payload) + "\n").encode("utf-8"))
-            channel.shutdown_write()
+            with stdin:
+                stdin.write((json.dumps(payload) + "\n").encode("utf-8"))
             output = stdout.read()
             status = channel.recv_exit_status()
     except (OSError, EOFError, KeyboardInterrupt, paramiko.SSHException):
